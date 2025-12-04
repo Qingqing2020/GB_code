@@ -1,0 +1,472 @@
+---
+title: "Fig5_bc_TF_network"
+output: 
+  html_document:
+    number_sections: true
+    toc: true
+    toc_depth: 3
+    toc_float: 
+      collapsed: false
+      smooth_scroll: false
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "./RNAseq/HL60/")
+
+```
+
+# load library
+```{r}
+library(dplyr) # use select
+library(tidyr)
+library(ggplot2)
+
+library(Hmisc)# in order to use capitalize
+
+library(purrr)
+library("pheatmap")
+# install.packages("corrplot")
+library(corrplot)
+library(igraph)
+
+```
+
+```{r}
+	plot_theme <-  theme_bw() +
+		  theme(axis.line = element_line(colour = "black"),
+		        panel.grid.major = element_blank(),
+		        panel.grid.minor = element_blank(),
+		        panel.border = element_blank(),
+		        panel.background = element_blank(),
+		        # title in the middle
+		        plot.title = element_text(hjust = 0.5),
+		        text = element_text(size = 15),axis.text = element_text(size = 15)) +theme(aspect.ratio = 1)
+
+  box_theme <- theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # title in the middle
+        plot.title = element_text(hjust = 0.5)) 
+
+```
+
+##5b
+# input the data 
+```{r}
+
+df <- read.csv("./RNAseq/HL60/TPM.csv")
+
+df <- dplyr::select(df,-X)
+head(df)
+
+df<-df[,-which(colnames(df)=="RA4h_1_TPM")] 
+
+# just remove the _TPM to make the name shorter !!!
+colnames(df)[2:dim(df)[2]] <- unlist(lapply(X = colnames(df)[2:dim(df)[2]],FUN = function(x) {return (strsplit(x,"_TPM")[[1]][1])}))
+
+head(df)
+```
+
+## interested TFs
+```{r}
+
+TFs<- c("Gata2","Irf8","Gfi1","Cebpa","Lyl1","Ikzf1","Cebpe","Spi1","Cebpb","Nfil3","Max","Nfe2","Klf5","Mxd1","Ltf","Klf7","Mlx","Xbp1","Mafg","E2f2","Myc","Ets1","Klf13","Zbtb7b","Fosl1","Etv5","Tcf7","E2f1","Pou2af1","Rb1","Cux1","Ezh2","Ybx1","E2f8","Nfil3","Klf2","Tbx6","Irf9","Irf2","Irf5","Bcl3","Stat3","Irf7","Stat1","Nfkb2","Atf3","Fosl2","Ddit3","Klf3","Junb","Jdp2","Irf8","Nfe2l2","Irf1","Stat2","Fosb","EGR1","EGR2","EGR3","ID1","Bcl2","Bcl6","Tbx21", "STAT6", "FOS","MAFB","REL","MYB")
+
+TFs<-unique(unlist(lapply(X =TFs ,FUN= function(x) {return(toupper(x))})))
+TFs
+length(TFs)
+```
+
+```{r}
+
+TFs_TPM <- df[which(df$Gene %in% TFs),]
+dim(TFs_TPM)
+
+
+```
+
+### save data
+```{r}
+write.csv(TFs_TPM,"./TFs_TPM.csv")
+
+```
+
+
+## TFs cor network
+
+customize the color based on the needs
+
+```{r}
+rowkeep <- which((apply(TFs_TPM[,2:12],1, max) > 5) == TRUE)
+length(rowkeep)
+TFs_TPM<- TFs_TPM[rowkeep,]
+dim(TFs_TPM)
+apply(TFs_TPM[,2:12],1, max)
+```
+
+```{r}
+rownames(TFs_TPM) <- TFs_TPM$Gene
+TFs_TPM <- dplyr::select(TFs_TPM,-Gene)
+head(TFs_TPM)
+```
+
+### correlation
+```{r}
+TFs_TPM_gene_cor <- cor(t(TFs_TPM))
+
+```
+
+```{r}
+corrplot(TFs_TPM_gene_cor)
+
+palette = colorRampPalette(c("green", "white", "red")) (20)
+heatmap(x = TFs_TPM_gene_cor, col = palette, symm = TRUE)
+
+```
+
+### save data
+```{r}
+
+write.csv(TFs_TPM_gene_cor,"./TFs_TPM_gene_cor.csv")
+```
+
+
+```{r}
+corr_01 <- TFs_TPM_gene_cor
+thres = 0.7
+corr_01[abs(corr_01) >= thres] <- as.integer(1)
+corr_01[abs(corr_01) < thres] <- as.integer(0) 
+head(corr_01)  
+```
+
+```{r}
+network <- graph_from_adjacency_matrix(corr_01 , mode='undirected', diag=F )
+par(mar = rep(0.1, 4))   # reduce margins
+plot(network, layout=layout.sphere, main="sphere")
+```
+
+### igraph construction
+
+```{r}
+
+cat(sort(TFs))
+```
+
+
+```{r}
+RA4h_up <- c("ID1","FOS","JUNB","EGR1","CEBPA") 
+RA2d_up <- c("GFI1","IKZF1","CEBPE","MAFG","E2F2","ETS1","KLF13","TCF7","RB1","CUX1","E2F8","TBX21","CEBPB")
+RA4d_up <- c("SPI1","ZBTB7B","KLF2","TBX6","IRF9","BCL3","IRF7","NFKB2","DDIT3","STAT2","STAT6","FOSB","EGR2","BCL6","NFIL3","MXD1","KLF7","MLX","ETV5","IRF2","STAT3","STAT1","FOSL2","KLF3","NFE2L2","IRF1","EGR3","MAFB","REL")
+Down<-c("GATA2","MAX","FOSL1","IRF5","ATF3","IRF8","LYL1","NFE2","KLF5","LTF","XBP1","MYC","E2F1","EZH2","YBX1","JDP2","BCL2","MYB")
+```
+
+
+```{r}
+
+nodes <- data.frame(name=colnames(corr_01),
+                 group=""
+                  )
+
+nodes[which(nodes$name %in% RA4h_up),"group"] <- "RA4h_up"
+nodes[which(nodes$name %in% RA2d_up),"group"] <- "RA2d_up"
+nodes[which(nodes$name %in% RA4d_up),"group"] <- "RA4d_up"
+nodes[which(nodes$name %in% Down),"group"] <- "Down"
+
+head(nodes)
+```
+
+
+
+```{r}
+
+temp <- as.data.frame(TFs_TPM_gene_cor)
+temp$From <- rownames(temp)
+
+links<- temp %>% pivot_longer(cols = colnames(TFs_TPM_gene_cor), names_to = "To",values_to = "Corr" )
+links$weight <- abs(links$Corr)
+# remove coor < 0.6
+dim(links)
+links <- links[which(abs(links$Corr)>= 0.6), ]
+dim(links)
+# remove From == To
+links <- links[which(links$From != links$To), ]
+dim(links)
+
+```
+
+
+
+two nodes  just need one link , A-B  not A--B and B--A is redudant
+```{r}
+
+a = paste(links$From,links$To, sep = ",")
+
+b <- unlist(lapply(X =a ,FUN= function(x) { return (paste(sort(unlist(strsplit(x,split = ","))), collapse = " ")) } ))
+
+
+links["combination"] = b
+links = links[!duplicated(links$combination),1:4]
+
+dim(links)
+```
+
+
+
+```{r}
+network <- graph_from_data_frame(d=links, vertices=nodes, directed=F) 
+
+
+```
+
+```{r}
+
+plot(network, e=TRUE, v=TRUE,layout=layout.sphere)
+```
+
+### change node color
+```{r}
+# Make a palette of 3 colors
+library(RColorBrewer)
+coul  <- brewer.pal(3, "Set1") 
+head(nodes)
+```
+
+
+```{r}
+
+coul  <- c("sky blue","Light Coral","Bisque","orange red")
+
+# Create a vector of color
+my_color <- coul[as.numeric(as.factor(V(network)$group))]
+ 
+# Make the plot
+plot(network, vertex.color=my_color)
+ 
+# Add a legend
+legend("bottomright", legend=levels(as.factor(V(network)$group))  , col = coul , bty = "n", pch=20 , pt.cex = 3, cex = 1.5, text.col=coul , horiz = FALSE, inset = c(0.1, 0.1))
+
+```
+
+### change edge width 
+
+```{r}
+# Set edge width based on weight:
+
+E(network)$width <- log(1/(-log(E(network)$weight)))
+
+# plot(network, vertex.color=my_color,layout=layout.circle)
+plot(network, vertex.color=my_color,layout=layout.sphere)
+
+plot(network, vertex.color=my_color)
+```
+
+###  change edge color 
+
+```{r}
+coul2  <- brewer.pal(3, "Set2") 
+coul2 <- c("blue","red")
+edge.col <- coul2[as.factor(sign(links$Corr))]
+
+set.seed(42)
+
+plot(network, vertex.color=my_color,edge.color=edge.col,vertex.size = 6,vertex.label.size=20,edge.width=E(network)$width)
+# vertex.label.dist=0.5 # position of the label
+# plot(net, edge.color=edge.col, edge.curved=.1)  
+
+legend("bottomright", legend=levels(as.factor(V(network)$group))  , col = coul , bty = "n", pch=20 , pt.cex = 3, cex = 1.5, text.col=coul , horiz = FALSE, inset = c(0.1, 0.1))
+
+legend("topright", legend=levels(as.factor(sign(links$Corr)))  , col = coul2 , bty = "n", pch=20 , pt.cex = 3, cex = 1.5, text.col=coul , horiz = FALSE, inset = c(0.1, 0.1))
+
+```
+
+Save the plot
+```{r}
+coul2  <- brewer.pal(3, "Set2") 
+coul2 <- c("blue","red")
+edge.col <- coul2[as.factor(sign(links$Corr))]
+
+set.seed(42)
+pdf("./TFnetwork.pdf",width = 20,height = 20)
+
+plot(network, vertex.color=my_color,edge.color=edge.col,edge.width=E(network)$width,vertex.size = 6,vertex.label.size=20,vertex.label.color= "black")
+# vertex.label.dist=0.5 # position of the label
+# plot(net, edge.color=edge.col, edge.curved=.1)  
+
+legend("bottomright", legend=levels(as.factor(V(network)$group))  , col = coul , bty = "n", pch=20 , pt.cex = 3, cex = 1.5, text.col=coul , horiz = FALSE, inset = c(0.1, 0.1))
+
+legend("topright", legend=levels(as.factor(sign(links$Corr)))  , col = coul2 , bty = "n", pch=20 , pt.cex = 3, cex = 1.5, text.col=coul , horiz = FALSE, inset = c(0.1, 0.1))
+dev.off()
+```
+
+### network to df
+```{r}
+
+head(as_long_data_frame(network))
+
+write.csv(as_long_data_frame(network),"./TFnetwork_df.csv")
+```
+
+# -----Export to cytoscape for visualization
+Create a Cytoscape network from an igraph network
+
+ref --- 
+https://www.bioconductor.org/packages/devel/bioc/vignettes/RCy3/inst/doc/Cytoscape-and-iGraph.html
+
+```{r}
+
+if(!"RCy3" %in% installed.packages()){
+    install.packages("BiocManager")
+    BiocManager::install("RCy3")
+}
+library(RCy3)
+
+
+```
+
+
+```{r}
+# cytoscape need to be open
+createNetworkFromIgraph(network)
+
+```
+
+
+
+# 1. find the centroid 
+
+## load cluster
+```{r}
+partitions_files<- dir(paste0(PATH,"leiden_plots_1000"))[grep(dir(paste0(PATH,"leiden_plots_1000")),pattern = ".csv")]
+partitions_files
+## remove 12,13, 14 which is too small 
+
+partitions_files<- partitions_files[c(0:4,8:15)]
+partitions_files<- mixedsort(partitions_files)
+partitions_files
+```
+
+```{r}
+TPM<- read.csv("./TPM.csv")
+head(TPM)
+
+rownames(TPM) <- TPM$Gene
+TPM <- select(TPM,-X,-Gene)
+head(TPM)
+```
+
+
+```{r}
+partitions_list <-list() 
+partitions_TPM_list<-list() 
+
+for(f in partitions_files){
+  # f = partitions_files[1]
+  name_temp <- strsplit(f,"[.]")[[1]][1]
+  partitions_list[[name_temp]]<- read.csv(paste0(PATH,"leiden_plots_1000/",f))$DEGs
+  partitions_TPM_list[[name_temp]] <- TPM[partitions_list[[name_temp]],]
+}
+
+lapply(partitions_list,length)
+lapply(partitions_TPM_list,dim)
+```
+
+# 2. cluster centroid by kmeans
+
+
+
+```{r}
+dim(TPM)
+Centroids_matrix = matrix(0, nrow = 12, ncol = 12)
+
+# the cluster start from 0 , but R start from 1 -----
+
+for (c in seq(1:12)){
+  # c =1
+  temp_TPM <- partitions_TPM_list[[names(partitions_TPM_list)[c]]]
+  set.seed(2);mtx_kmeans <- kmeans(temp_TPM,centers=1,nstart = 25)
+  Centroids_matrix[c,] <- mtx_kmeans$centers # it is a matrix
+  # class(mtx_kmeans$centers)
+}
+
+colnames(Centroids_matrix) <- colnames(TPM)
+rownames(Centroids_matrix) <- names(partitions_TPM_list)
+Centroids_matrix
+
+```
+```{r}
+cor(t(Centroids_matrix))
+
+library(corrplot)
+min(cor(t(Centroids_matrix)))
+corrplot(cor(t(Centroids_matrix)),
+         method = 'color',
+         is.corr = FALSE,
+         # col.lim = c(min(cor(df))- 0.01, 1),
+         col = colorRampPalette(c("white", "darkblue"))(100),
+         cl.align.text = "l"
+         )
+```
+
+# 3. plot 
+```{r}
+library("igraph")
+
+g <- graph.full(length(rownames(Centroids_matrix)))
+V(g)$Name = rownames(Centroids_matrix)     
+g
+
+V(g)
+```
+
+```{r}
+link_corr <- c()
+for(i in seq(1:11)){
+  for(j in c((i+1):12)){
+    cat(i,j,"\n")
+    link_corr<- c(link_corr,cor(t(Centroids_matrix))[i,j ] )
+  }
+}
+length(link_corr) 
+
+```
+
+
+```{r}
+E(g)$weight <- abs(link_corr)
+
+```
+
+```{r}
+plot(g)
+```
+
+```{r}
+
+E(g)$color <-ifelse(link_corr>0, "red","blue")
+E(g)$width <- E(g)$weight*2
+# E(g)[ weight < 0.5 ]$width <- 2
+
+set.seed(2)
+V(g)$size <- (unlist(lapply(partitions_list,length)))/8
+  
+
+plot(g)
+```
+```{r}
+
+E(g)$color <-ifelse(link_corr>0, "red","blue")
+E(g)$width <- E(g)$weight*3
+# E(g)[ weight < 0.5 ]$width <- 2
+
+V(g)$size <- log2(unlist(lapply(partitions_list,length)))*4
+  
+
+plot(g)
+```
+
+

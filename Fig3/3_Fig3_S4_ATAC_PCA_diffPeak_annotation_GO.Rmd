@@ -1,0 +1,708 @@
+---
+title: "3_Fig3_S4_ATAC_PCA_diffPeak_annotation_GO"
+output: 
+  html_document:
+    number_sections: true
+    toc: true
+    toc_depth: 3
+    toc_float: 
+      collapsed: false
+      smooth_scroll: false
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+knitr::opts_knit$set(root.dir = "./ATACseq/HL60/")
+
+```
+
+
+```{r}
+rm(list = ls())
+PATH <- "./ATACseq/HL60/"
+```
+
+
+## load library
+```{r}
+library(ggplot2)
+library(ggrepel)
+library(stringr)
+library(DESeq2)
+library(edgeR)
+library(grid)
+library(factoextra)
+library(cluster)
+library(pbapply)
+library(pheatmap)
+library(openxlsx)
+library(ggrepel)
+library(GenomicFeatures)
+library(GenomicRanges)
+# library("org.Rn.eg.db") # rat
+library("org.Hs.eg.db") # human
+library("org.Mm.eg.db") # mm
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
+library("biomaRt")
+library(ChIPseeker)
+library(ReactomePA)
+library(clusterProfiler)
+library(openxlsx)
+library(rtracklayer)
+library(plyr) # to use ioin
+library(dplyr)# use full_join
+library(gtools) # mixsort
+library(grid)
+library(futile.logger)
+library(VennDiagram)
+
+```
+
+
+```{r}
+plot_theme <- theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # title in the middle
+        plot.title = element_text(hjust = 0.5),
+        text = element_text(size = 15),axis.text = element_text(size = 15)) +theme(aspect.ratio = 1)
+```
+
+
+
+```{r}
+
+path="./ATACseq/HL60/"
+
+dir.create(path = paste0(path,"DiffPeak"))
+dir(path) # need to produce coverage.bed and merged.bed files
+
+```
+
+
+
+### import peaks and coverage 
+
+```{r}
+  coverage <- read.csv(paste(path,"HL60_coverage.bed",sep = ''),sep='\t',header = T)
+  head(coverage)
+  merge <- read.csv(paste(path,"HL60_merged_pooled_Peaks.bed",sep = ''),sep='\t',header = F)
+  names(merge)<-c('chr','start','end','idx')
+  head(merge)
+  tail(merge)
+  
+```
+
+
+### set sample order
+```{r}
+## set sample order
+
+extract_condition <- function(x) {return  (unlist(strsplit(x, "[_]"))[2])}
+Conditions <-unique(unlist(lapply(colnames(coverage)[2:dim(coverage)[2]],extract_condition)))
+Conditions
+
+Conditions <- c("Ctrl","4h","2d","4d")
+
+colnames(coverage)[2:dim(coverage)[2]]
+
+sample_order <- colnames(coverage)[2:dim(coverage)[2]][c(7,8,5,6,1:4)]
+
+length(sample_order)
+sample_order
+
+```
+## re-set coverage order 
+```{r}
+coverage <- coverage[,c("PeakLength",sample_order)]
+head(coverage)
+```
+
+
+## 1. PCA plot for reproducibility
+
+####  PCA of all the samples
+```{r}
+RPK <- coverage[,sample_order]/coverage[,1]*10^3
+RPKM <- as.data.frame(t(t(RPK)/apply(RPK, 2, sum)*10^6))
+
+pca <- as.data.frame(prcomp(t(RPKM[,]),scale.=T)$x)
+
+  pca$name <- rownames(pca);
+  pca$name
+  extract_condition <- function(x) {return  (unlist(strsplit(x, "[_]"))[2])}
+  pca$condition  <- unlist(lapply(pca$name ,extract_condition))
+  pca$condition
+ 
+  PCA <- prcomp(t(RPKM),scale.=T)
+  PCA <- (PCA$sdev/sum(PCA$sdev))[1:2]
+  PCA <- paste(round(PCA,4)*10^2,'%',sep = '')
+  
+  p<- ggplot(data = pca,aes(x=PC1, y=PC2, label=name, colour = condition)) + 
+    labs(x=paste('PC1',PCA[1]),y=paste('PC2',PCA[2]))+
+    geom_point() + geom_text_repel(aes(label=name), size = 4, hjust=-1, vjust=0, angle=0)+ plot_theme
+
+  print(p)
+```
+
+
+```{r}
+# save RPKM
+RPKM_temp <- RPKM
+colnames(RPKM_temp) <- paste0(colnames(RPKM_temp),"_RIP_norm")
+
+write.csv(RPKM_temp,paste(path,'DiffPeak/','RPKM_RIP_norm.csv',sep=''),quote = F,row.names = F,col.names = T)
+
+```
+
+
+## 2. find Diff peaks  ---heatmap on all clusters--output files
+
+
+```{r}
+coverage <- coverage[,-1]
+head(coverage)
+```
+
+```{r}
+
+Conditions 
+N = length(Conditions)
+
+All_diff_Peak_idx = numeric()
+
+for (i in 1:(N-1)){
+  for (j in (i+1):N){
+    # i = 1
+    # j = 4
+    condition1 = grep(colnames(coverage),pattern = Conditions[i])
+    condition2 = grep(colnames(coverage),pattern = Conditions[j])
+    
+    group <- factor(c(rep(i,length(condition1)),rep(j,length(condition2))))
+  
+    y = DGEList(counts = coverage[,c(condition1,condition2)],group = group)
+    print(names(coverage[,c(condition1,condition2)]))
+    dim(y)
+    
+    y <- calcNormFactors(y)
+    y <- estimateCommonDisp(y)
+    
+    fit <- glmQLFit(y)
+    qlf <- glmQLFTest(fit)
+    topTags(qlf)
+        
+    fdr <- p.adjust(p = qlf$table$PValue,method = "BH",n = length(qlf$table$PValue))
+    length(fdr)
+    diff_idx <- which(fdr < 0.05 & abs(qlf$table$logFC) > log2(2))
+    
+    All_diff_Peak_idx <- c(All_diff_Peak_idx,diff_idx)
+    
+    change <- cbind(merge,pval=qlf$table$PValue,qval=fdr,logFC=qlf$table$logFC)
+    dim(change)
+    
+    print(c(paste(Conditions[i],unique(Conditions)[j],sep='<'),sum(change$logFC[diff_idx]>0),
+            paste(unique(Conditions)[i],unique(Conditions)[j],sep='>'),sum(change$logFC[diff_idx]<0)))
+    
+    name2 <- unique(Conditions)[j]
+    name1 <- unique(Conditions)[i]
+    names(change)[grep(names(change),pattern="logFC")] <- paste('log2(', name2,'/', name1,')',sep = '')
+
+    pair_name <- paste(Conditions[j],'_vs_',Conditions[i],sep='')
+    ########################### save the data       ###############################################################################
+    dim(change)[1] == dim(coverage)[1] 
+    dim(coverage)[1] ==dim(RPKM)[1]
+
+     #----(1) the big table: add the count  to the results  
+      
+    change<- cbind(coverage[,c(condition1,condition2)],RPKM[,c(condition1,condition2)],change)
+    head(change)
+    write.csv(change,paste(path,'DiffPeak/',name2,'-', name1, 'PeakChanges.csv',sep=''),quote = F,row.names = F,col.names = T)
+      
+      # (2)------save the diff table
+    write.table(change[diff_idx,c("chr","start","end")],paste(path,'DiffPeak/', name2,'-', name1,'_diffPeak.bed',sep=''),quote = F,sep = '\t',row.names = F,col.names = F)
+  
+    write.csv(change[diff_idx,],paste(path,'DiffPeak/', name2,'-', name1,'_diffPeak.csv',sep=''),quote = F,row.names = F,col.names = T)
+      
+      ### split the file to group specific peaks
+    write.table(change[diff_idx,c("chr","start","end")][which(change[diff_idx,grep(names(change),pattern="log2")] > 0 ),],paste(path,'DiffPeak/', pair_name,"_",name2,'_specific_peaks', '.bed',sep=''),quote = F,sep = '\t',row.names = F,col.names = F)
+      write.table(change[diff_idx,c("chr","start","end")][which(change[diff_idx,grep(names(change),pattern="log2")]< 0 ),],paste(path,'DiffPeak/',pair_name,"_", name1,'_specific_peaks', '.bed',sep=''),quote = F,sep = '\t',row.names = F,col.names = F)
+      
+    ########################### ########################### ########################### ###########################
+
+  # heat map on all the samples -------------  hcluster
+  
+  mtx <- RPKM[diff_idx,]
+  dim(mtx)
+  # sample_order <- names(coverage)
+    
+  fun1 <- function(x) {return (substr(x,1,str_length(x)-2))}
+  fun2 <- function(x) {return (substr(x,str_length(x),str_length(x)))}
+  
+  extract_condition <- function(x) {return  (unlist(strsplit(x, "[_]"))[2])}
+  Condition <-unlist(lapply(sample_order,extract_condition))
+  Condition
+  Replicates <- (unlist(lapply(sample_order,fun2)))
+  Replicates
+  
+  Sample_info <- data.frame(Conditions  = factor(Condition), Replicates  = factor(Replicates))
+  ##  IMPORTANT ******* here must be consistent ********!!!!!!!
+  rownames(Sample_info) <- colnames(mtx)
+  Sample_info
+  
+
+  pheatmap(mtx ,cluster_rows=T,cluster_cols = F,show_rownames = F,
+           scale = "row",
+           # cutree_rows=5,
+           angle_col='315',
+           # annotation_row = gene_info , 
+           annotation_col = Sample_info,
+           main = paste('Diff Peak hclust: ',name2,' VS ', name1))
+    
+  ## other way to draw 
+  # hclust -------
+
+  mtx_Zscore <- (mtx-apply(X = mtx, MARGIN = 1, mean))/apply(X = mtx, MARGIN = 1, sd)
+        # remove NA or inf value  
+        # rows that should kept 
+        row_keep <- apply(mtx_Zscore, 1, function(x) !(sum(is.na(x)) | sum(is.infinite(x))) )
+        mtx_Zscore = mtx_Zscore[row_keep, ]
+  
+  mtx_hclust <- hclust(dist(mtx_Zscore), method = "complete")
+        
+
+      peak_cluster <- data.frame(cutree(tree = (mtx_hclust), k = 2))
+      names(peak_cluster)<- 'cluster';peak_cluster$cluster <- factor(peak_cluster$cluster)
+      pheatmap(mtx_Zscore,cluster_rows=T,cluster_cols = F,show_rownames = F,cutree_rows=2,
+               angle_col='315',annotation_row = peak_cluster, annotation_col = Sample_info,main = paste('Diff Peak hclust: ',name2,' VS ', name1))
+      
+
+##  heat map on paired samples ----------kmeans
+  
+      set.seed(2);mtx_kmeans <- kmeans(mtx_Zscore,centers=2,nstart = 25)
+      peak_kmeans <- as.data.frame(sort(mtx_kmeans$cluster)); names(peak_kmeans) <- 'cluster'; 
+      peak_kmeans$cluster <- factor(peak_kmeans$cluster)
+      
+      pheatmap(mtx_Zscore[names(sort(mtx_kmeans$cluster)),],cluster_rows=F,cluster_cols = F,show_rownames = F,
+               angle_col='315',annotation_row = peak_kmeans, annotation_col = Sample_info,main = paste('Diff Peak kmeans : ',name2,' VS ', name1))
+
+  mtx <- RPKM[diff_idx,c(condition1,condition2)]
+  dim(mtx)
+  # sample_order <- names(coverage)
+  
+  extract_condition <- function(x) {return  (unlist(strsplit(x, "[_]"))[2])}
+  Condition <-unlist(lapply(colnames(mtx),extract_condition))
+  Condition
+  
+  fun1 <- function(x) {return  (unlist(strsplit(x, "[_]"))[3])}
+  Replicates <- (unlist(lapply(colnames(mtx),fun1)))
+  Replicates
+  
+  Sample_info <- data.frame(Conditions  = factor(Condition), Replicates  = factor(Replicates))
+  ##  IMPORTANT ******* here must be consistent ********!!!!!!!
+  rownames(Sample_info) <- colnames(mtx)
+  Sample_info
+  
+  ##  heat map on paired samples ----------kmeans
+      set.seed(2);mtx_kmeans <- kmeans(mtx_Zscore,centers=2,nstart = 25)
+      peak_kmeans <- as.data.frame(sort(mtx_kmeans$cluster)); names(peak_kmeans) <- 'cluster'; 
+      peak_kmeans$cluster <- factor(peak_kmeans$cluster)
+      
+      pheatmap(mtx_Zscore[names(sort(mtx_kmeans$cluster)),],cluster_rows=F,cluster_cols = F,show_rownames = F,
+               angle_col='315',annotation_row = peak_kmeans, annotation_col = Sample_info,main = paste('Diff Peak kmeans: ',name2,' VS ', name1))
+  
+  
+  ## ------------------------ plot the result using volcano plot ------------------------
+    
+    head(change)
+    change[["sig"]] <- as.factor(ifelse(change$idx %in% diff_idx,"Yes","No"))
+    head(change)
+    change[diff_idx,]
+    
+    p<- ggplot(data=change, aes(x=get(names(change)[grep(names(change),pattern="log2")]), y=-log10(qval))) +geom_point(col = ifelse(change$sig=="No","grey",ifelse(change[,colnames(change)[grep("log2",colnames(change))]]>0,"red","blue")), size = ifelse(change$sig=="Yes",1,0.1)) + 
+      labs(y = "-log10(qval)", x = names(change)[grep(names(change),pattern="log2")],title = "Diff peaks(qval < 0.05; FC > 2)")+
+       ylim(c(0, 6))+
+      # add line according to the threshold use previously
+        geom_hline(yintercept = -log10(0.05),col="black",lwd=0.6)+
+        geom_vline(xintercept = log2(2),col="black",lwd=0.6)+
+        geom_vline(xintercept = -log2(2),col="black",lwd=0.6)+plot_theme
+    
+    print(p)
+    
+    # no ylim
+    p1 <- ggplot(data=change, aes(x=get(names(change)[grep(names(change),pattern="log2")]), y=-log10(qval))) + geom_point(col = ifelse(change$sig=="No","grey",ifelse(change[,colnames(change)[grep("log2",colnames(change))]]>0,"red","blue")), size = ifelse(change$sig=="Yes",1,0.1)) + 
+      labs(y = "-log10(qval)", x = names(change)[grep(names(change),pattern="log2")],title = "Diff peaks(qval < 0.05; FC > 2)")+
+       # add line according to the threshold use previously
+        geom_hline(yintercept = -log10(0.05),col="black",lwd=0.6)+
+        geom_vline(xintercept = log2(2),col="black",lwd=0.6)+
+        geom_vline(xintercept = -log2(2),col="black",lwd=0.6)+plot_theme
+    
+    print(p1)
+    
+    ## compress y axis again
+    p2 <-  ggplot(data=change, aes(x=get(names(change)[grep(names(change),pattern="log2")]), y=log10(-log10(qval)+1))) +geom_point(col = ifelse(change$sig=="No","grey",ifelse(change[,colnames(change)[grep("log2",colnames(change))]]>0,"red","blue")), size = ifelse(change$sig=="Yes",1,0.1)) + 
+      labs(y = "log10(-log10(qval)+1)", x = names(change)[grep(names(change),pattern="log2")],title = "Diff peaks(qval < 0.05; FC > 2)")+
+      # add line according to the threshold use previously
+        geom_hline(yintercept = log10(-log10(0.05)+1),col="black",lwd=0.6)+
+        geom_vline(xintercept = log2(2),col="black",lwd=0.6)+
+        geom_vline(xintercept = -log2(2),col="black",lwd=0.6)+plot_theme
+    
+     print(p2)
+     
+     
+  }
+}
+
+```
+
+
+## 3. combine all the DiffPeaks 
+
+### overall heatmap 
+```{r}
+    length(All_diff_Peak_idx)
+    All_DiffPeaks_unique_idx <- unique(All_diff_Peak_idx)
+    length(All_DiffPeaks_unique_idx)
+  # heat map on all the samples -------------hcluster
+    samples <- as.data.frame(pca$condition); names(samples) <- 'sample';
+    
+    # rownames(samples) <- pca$name;
+    rownames(samples) <- colnames(RPKM) # make sure the same is consistent, because I changed the colnames of RPKM previously
+    samples$sample <- factor(samples$sample)
+    samples
+
+    mtx_Zscore <- (RPKM[All_DiffPeaks_unique_idx,]-apply(X = RPKM[All_DiffPeaks_unique_idx,], MARGIN = 1, mean))/apply(X = RPKM[All_DiffPeaks_unique_idx,], MARGIN = 1, sd)
+    dim(mtx_Zscore)
+    # remove NA or inf value  
+      # rows that should kept 
+    row_keep <- apply(mtx_Zscore, 1, function(x) !(sum(is.na(x)) | sum(is.infinite(x))) )
+    mtx_Zscore = mtx_Zscore[row_keep, ]
+    dim(mtx_Zscore)
+    
+    mtx_hclust <- hclust(dist(mtx_Zscore), method = "complete")
+    
+
+     peak_col <- data.frame(cutree(tree = (mtx_hclust), k = 2))
+    names(peak_col)<- 'cluster';peak_col$cluster <- factor(peak_col$cluster)
+    head(peak_col)
+    
+
+    pheatmap(mtx_Zscore,cluster_rows=T,cluster_cols = F,show_rownames = F,cutree_rows=2,
+             angle_col='315',annotation_row = peak_col, annotation_col = samples,main = 'All DiffPeaks z-score (hclust)')
+    
+    
+    peak_col <- data.frame(cutree(tree = (mtx_hclust), k = 4))
+    names(peak_col)<- 'cluster';peak_col$cluster <- factor(peak_col$cluster)
+    head(peak_col)
+    
+    pheatmap(mtx_Zscore,cluster_rows=T,cluster_cols = F,show_rownames = F,cutree_rows=2,
+             angle_col='315',annotation_row = peak_col, annotation_col = samples,main = 'All DiffPeaks z-score (hclust)')
+    
+    
+    ##  heat map on all the samples --------------kmeans
+    dim(mtx_Zscore)
+    
+    # fviz_nbclust(mtx_Zscore, kmeans, method = "wss")
+
+    set.seed(2);mtx_kmeans <- kmeans(mtx_Zscore,centers=4,nstart = 25)
+    peak_kmeans <- as.data.frame(sort(mtx_kmeans$cluster)); names(peak_kmeans) <- 'cluster'; 
+    peak_kmeans$cluster <- factor(peak_kmeans$cluster)
+    
+    pheatmap(mtx_Zscore[names(sort(mtx_kmeans$cluster)),],cluster_rows=F,cluster_cols = F,show_rownames = F,
+             angle_col='315',annotation_row = peak_kmeans, annotation_col = samples,main = 'All DiffPeaks z-score (k-means)')
+    # names(mtx_kmeans$cluster)
+    Cluster_4_list <- list()
+    Cluster_4_list[["Cluster1"]]<- names(mtx_kmeans$cluster[which(mtx_kmeans$cluster==1)])
+    Cluster_4_list[["Cluster2"]]<- names(mtx_kmeans$cluster[which(mtx_kmeans$cluster==2)])
+    Cluster_4_list[["Cluster3"]]<- names(mtx_kmeans$cluster[which(mtx_kmeans$cluster==3)])
+    Cluster_4_list[["Cluster4"]]<- names(mtx_kmeans$cluster[which(mtx_kmeans$cluster==4)])
+    lapply(Cluster_4_list, length)
+    
+    
+    set.seed(2);mtx_kmeans <- kmeans(mtx_Zscore,centers=2,nstart = 25)
+    peak_kmeans <- as.data.frame(sort(mtx_kmeans$cluster)); names(peak_kmeans) <- 'cluster'; 
+    peak_kmeans$cluster <- factor(peak_kmeans$cluster)
+    
+    pheatmap(mtx_Zscore[names(sort(mtx_kmeans$cluster)),],cluster_rows=F,cluster_cols = F,show_rownames = F,
+             angle_col='315',annotation_row = peak_kmeans, annotation_col = samples,main = 'All DiffPeaks z-score (k-means)')
+  
+    Cluster_2_list <- list()
+    Cluster_2_list[["Cluster1"]]<- names(mtx_kmeans$cluster[which(mtx_kmeans$cluster==1)])
+    Cluster_2_list[["Cluster2"]]<- names(mtx_kmeans$cluster[which(mtx_kmeans$cluster==2)])
+
+    lapply(Cluster_2_list, length)
+    
+```
+
+
+
+## 4. Peak annotation
+
+
+
+```{r}
+
+diff_peak_list= list()
+
+
+temp<-read.delim(paste0(path,"DiffPeakClusters2/HL60_2d_specific_peaks.bed"),header = F)
+colnames(temp) <- c("chr","start","end")
+diff_peak_list[["2d"]] <- GRanges(temp)
+
+temp <- read.delim(paste0(path,"DiffPeakClusters2/HL60_4h_specific_peaks.bed"),header = F)
+colnames(temp) <- c("chr","start","end")
+diff_peak_list[["4h"]]<-  GRanges(temp)
+
+temp<- read.delim(paste0(path,"DiffPeakClusters2/HL60_Ctrl_specific_peaks.bed"),header = F)
+colnames(temp) <- c("chr","start","end")
+diff_peak_list[["Ctrl"]]<-  GRanges(temp)
+
+temp<- read.delim(paste0(path,"DiffPeakClusters2/HL60_4d_specific_peaks.bed"),header = F)
+colnames(temp) <- c("chr","start","end")
+diff_peak_list[["4d"]]<-  GRanges(temp)
+
+lapply(diff_peak_list, length)
+
+```
+
+
+```{r}
+txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
+peakAnnoList <- lapply(diff_peak_list, annotatePeak, TxDb=txdb, tssRegion=c(-1000, 1000), verbose=FALSE, annoDb="org.Hs.eg.db")
+```
+
+
+#### 1. save the annotation 
+
+```{r}
+df_list <- list()
+for (C in names(peakAnnoList)){
+  # C ="2d" 
+  temp <- as.data.frame(peakAnnoList[[C]]@anno)
+  temp["Time_point"] <- rep(C,dim(temp)[1])
+  df_list[[C]]<- temp
+  
+}
+
+names(df_list)
+lapply(df_list,dim)
+
+```
+
+
+```{r}
+df<- Reduce(full_join,df_list)
+# change Ctrl to 0h
+df$Time_point[which(df$Time_point=="Ctrl")]="0h"
+unique(df$Time_point)
+write.csv(df,"./DiffPeakClusters2/Peak_Cluster_Annotation_detail_df.csv")
+
+```
+#### 2, summarize each category across time
+```{r}
+length(unique(df$annotation)) # Intron and Exon contain too much detail
+
+# startsWith(str, pattern, trim=FALSE, ignore.case=FALSE)
+# startsWith(s, 'Test')                   # ' Testing', 'testing', and 'Texting' do not match
+# startsWith(s, 'Test', trim=TRUE)        # Now ' Testing' matches
+# startsWith(s, 'Test', ignore.case=TRUE) # Now 'testing' matches
+
+df$annotation[which(startsWith(df$annotation,"Intron")== TRUE)]="Intron"
+df$annotation[which(startsWith(df$annotation,"Exon")== TRUE)]="Exon"
+
+count_detail <- df %>% group_by(Time_point,annotation) %>% count()
+
+write.csv(count_detail,"./DiffPeakClusters2/Peak_Cluster_Annotation_category_count_detail_df.csv")
+```
+
+
+
+
+```{r}
+plotAnnoBar(peakAnnoList)
+
+names(peakAnnoList)
+
+Conditions
+for (c in Conditions){
+  plotAnnoPie(peakAnnoList[[c]])
+  peakAnnoList[[c]]
+}
+
+
+
+```
+
+#### Profile  to TSS regions
+```{r}
+
+promoter <- getPromoters(TxDb=txdb, upstream=1000, downstream=1000)
+
+tagMatrixList <- lapply(diff_peak_list, getTagMatrix, windows=promoter) 
+
+##  Heatmap -----
+tagHeatmap(tagMatrixList, xlim=c(-1000, 1000), color=NULL)
+
+## Average Profile -----
+plotAvgProf(tagMatrixList, xlim=c(-1000, 1000), xlab="Genomic Region (5'->3')",
+        ylab = "Read Count Frequency", facet="row")
+# put together, no facet 
+plotAvgProf(tagMatrixList, xlim=c(-1000, 1000), xlab="Genomic Region (5'->3')",
+        ylab = "Read Count Frequency")
+
+```
+
+
+
+
+
+
+## 5. GO analysis
+
+ClusterProfiler(ORA)---DiffPeak---GO and KEGG analysis
+
+
+#### fun_ClusterProfiler_GO_KEGG_human
+```{r}
+## --2.-------Run GO and KEGG analysis -----------
+fun_ClusterProfiler_GO_KEGG_human <- function(gene_ENTREZID,Gene){
+
+  # gene_ENTREZID <- IDs
+  #      1. GO analysis ----- enrichGO 
+  ego_all <- enrichGO(gene = gene_ENTREZID,
+                      # pay attention here----- use the correct ref
+                      # OrgDb="org.Mm.eg.db",
+                      OrgDb="org.Hs.eg.db",
+                      ont='ALL',pAdjustMethod = 'BH',
+                      pvalueCutoff = 1,  qvalueCutoff = 1,
+                      # pvalueCutoff = 0.05, qvalueCutoff = 0.2,
+                      keyType = 'ENTREZID')
+  
+  pdf_name <- paste(Gene,"_GO_KEGG_figures.pdf",sep ="_")
+  pdf(pdf_name)
+  p_dot_GO <- dotplot(ego_all,showCategory=20,title =paste(Gene,"(GO)",sep =""))
+  print(p_dot_GO)
+  ego_all_sig <- ego_all[ego_all$pvalue <= 0.05]
+  write.table(ego_all,file = paste(Gene,"GOenrich.txt",sep ="_"),sep = "\t")
+  write.table(ego_all_sig,file = paste(Gene,"GOenrich_significant.txt",sep ="_"),sep = "\t")
+  
+  p_all<- read.table( paste(Gene,"GOenrich.txt",sep ="_"))
+  p_all<-p_all[order(p_all$p.adjust),]
+  dim(p_all)
+  head(p_all)
+  p_BP<-p_all[which(p_all[,1]== "BP"),]
+  write.table(p_BP,file = paste(Gene,"BP_GOenrich.txt",sep ="_"),sep = "\t")
+  p_CC<-p_all[which(p_all[,1]== "CC"),]
+  write.table(p_CC,file = paste(Gene,"CC_GOenrich.txt",sep ="_"),sep = "\t")
+  p_MF<-p_all[which(p_all[,1]== "MF"),]
+  write.table(p_MF,file = paste(Gene,"MF_GOenrich.txt",sep ="_"),sep = "\t")
+  ####    customize the bar plot 
+  ## all term
+  par(mar=c(4,20,2,2)+0.1)
+  # down left up right
+  barplot(rev(-log10(p_all$p.adjust[1:20]) ),horiz=TRUE,main = paste(Gene,"(GO)",sep = ""),col = "#0080CC",
+          names.arg = rev(paste(p_all$Description,"(",p_all$Count,")",sep ="")[1:20]),las =1,
+          xlim = c(0,max(rev(-log10(p_all$p.adjust[1:20]))+0.5)),
+          xlab = "-log10(p.adjust)" )
+  # paste(p_all$Description,"(",p_all$Count,")",sep ="")
+  
+  bar_plot_space <- seq(from =0,by = 0.2,length.out=20)
+  x_pos <- rev(-log10(p_all$p.adjust[1:20]))+0.2
+  y_pos = 1:20 + bar_plot_space
+  ## padj = 0.05
+  index <-which(x_pos>1.3)
+  points(x= x_pos[index],y=y_pos[index],pch  = "*")
+  
+  ## BP CC MF term
+  
+  par(mar=c(4,20,2,2)+0.1)
+  barplot(rev(-log10(p_BP$p.adjust[1:20]) ),horiz=TRUE,main = paste(Gene,"(BP)",sep = ""),col = "#0080CC",
+          names.arg = rev(paste(p_BP$Description,"(",p_BP$Count,")",sep ="")[1:20]),las =1,
+          xlim = c(0,max(rev(-log10(p_BP$p.adjust[1:20]))+0.5)),
+          xlab = "-log10(p.adjust)")
+  bar_plot_space <- seq(from =0,by = 0.2,length.out=20)
+  x_pos <- rev(-log10(p_BP$p.adjust[1:20]))+0.2
+  y_pos = 1:20 + bar_plot_space
+  ## padj = 0.05
+  index <-which(x_pos>1.3)
+  points(x= x_pos[index],y=y_pos[index],pch  = "*")
+  
+  par(mar=c(4,20,2,2)+0.1)
+  # down left up right
+  barplot(rev(-log10(p_CC$p.adjust[1:20]) ),horiz=TRUE,main = paste(Gene,"(CC)",sep = ""),col = "#0080CC",
+          names.arg = rev(paste(p_CC$Description,"(",p_CC$Count,")",sep ="")[1:20]),las =1,
+          xlim = c(0,max(rev(-log10(p_CC$p.adjust[1:20]))+0.5)),
+          xlab = "-log10(p.adjust)")
+  bar_plot_space <- seq(from =0,by = 0.2,length.out=20)
+  x_pos <- rev(-log10(p_CC$p.adjust[1:20]))+0.2
+  y_pos = 1:20 + bar_plot_space
+  ## padj = 0.05
+  index <-which(x_pos>1.3)
+  points(x= x_pos[index],y=y_pos[index],pch  = "*")
+  
+  par(mar=c(4,20,2,2)+0.1)
+  # down left up right
+  barplot(rev(-log10(p_MF$p.adjust[1:20]) ),horiz=TRUE,main = paste(Gene,"(MF)",sep = ""),col = "#0080CC",
+          names.arg = rev(paste(p_MF$Description,"(",p_MF$Count,")",sep ="")[1:20]),las =1,
+          xlim = c(0,max(rev(-log10(p_MF$p.adjust[1:20]))+0.5)),
+          xlab = "-log10(p.adjust)")
+  bar_plot_space <- seq(from =0,by = 0.2,length.out=20)
+  x_pos <- rev(-log10(p_MF$p.adjust[1:20]))+0.2
+  y_pos = 1:20 + bar_plot_space
+  ## padj = 0.05
+  index <-which(x_pos>1.3)
+  points(x= x_pos[index],y=y_pos[index],pch  = "*")
+  
+  # 2. KEGG analysis  
+  
+  ekegg <- enrichKEGG(gene_ENTREZID, organism = 'hsa', keyType = 'kegg',
+                      # -------------human : hsa  Rat:rno    Mouse:mmu-------------------
+                      # pvalueCutoff = 0.05,qvalueCutoff = 0.2,
+                      pvalueCutoff = 1,  qvalueCutoff = 1,
+                      pAdjustMethod = 'BH', minGSSize = 10,maxGSSize = 500,
+                      use_internal_data = FALSE)
+  p_dot_KEGG<- dotplot(ekegg, showCategory=30,title = paste(Gene,"(KEGG)",sep = "") )
+  print(p_dot_KEGG)
+  
+  dev.off()
+}
+
+```
+
+#### Peaks associated genes
+```{r}
+diff_peak_gene_list <- list()
+diff_peak_gene_list[["2d"]] <- unique(as.data.frame(peakAnnoList$`2d`)["geneId"])
+                                     
+diff_peak_gene_list[["4h"]]<- unique(as.data.frame(peakAnnoList$`4h`)["geneId"])
+diff_peak_gene_list[["Ctrl"]]<- unique(as.data.frame(peakAnnoList$`Ctrl`)["geneId"])
+diff_peak_gene_list[["4d"]]<- unique(as.data.frame(peakAnnoList$`4d`)["geneId"])
+
+lapply(diff_peak_gene_list, dim)
+
+```
+
+####  analysis 
+
+```{r}
+fun_ClusterProfiler_GO_KEGG_human(diff_peak_gene_list[["2d"]]$geneId,"2d")
+```
+
+
+```{r}
+fun_ClusterProfiler_GO_KEGG_human(diff_peak_gene_list[["4d"]]$geneId,"4d")
+```
+```{r}
+fun_ClusterProfiler_GO_KEGG_human(diff_peak_gene_list[["4h"]]$geneId,"4h")
+```
+
+```{r}
+fun_ClusterProfiler_GO_KEGG_human(diff_peak_gene_list[["Ctrl"]]$geneId,"Ctrl")
+```
+
+

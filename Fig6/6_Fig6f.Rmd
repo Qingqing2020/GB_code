@@ -1,0 +1,565 @@
+---
+title: "6_Fig6f"
+author: "Qing Chen"
+date: "08/04/2025"
+output: 
+  html_document:
+    number_sections: true
+    toc: true
+    toc_depth: 3
+    toc_float: 
+      collapsed: false
+      smooth_scroll: false
+---
+
+## goal: to increase the sample size ( 4d vs 0h  no need to be DEG )
+
+up: 4d > 0h 
+down: 4d < 0h
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+knitr::opts_knit$set(root.dir = './')
+```
+
+
+```{r }
+rm(list = ls())
+getwd()
+
+PATH <- "."
+dir(PATH)
+```
+
+
+# load library
+```{r}
+library(preprocessCore)
+library(scales)
+library(ChIPseeker)
+
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+txdb <- TxDb.Mmusculus.UCSC.mm10.knownGene
+library(GenomicRanges)
+library(clusterProfiler)
+
+library(org.Mm.eg.db)
+# "org.Hs.eg.db"
+library(ReactomePA)
+# BiocManager::install("ggimage")
+# install.packages("Rcpp")
+library("ggupset")
+library("ggplotify")
+library("ggimage")
+
+library(dplyr) # use select
+library(tidyr)
+library(ggplot2)
+# add three more genes
+# DEG_ChromVARTF
+# Bcl11b, Bcl6, and Gfi1,Gata3
+library(Hmisc)# in order to use capitalize
+
+## in order to use reduce
+library(purrr)
+library("pheatmap")
+library(GenomicRanges)
+
+```
+
+```{r}
+	plot_theme <-  theme_bw() +
+		  theme(axis.line = element_line(colour = "black"),
+		        panel.grid.major = element_blank(),
+		        panel.grid.minor = element_blank(),
+		        panel.border = element_blank(),
+		        panel.background = element_blank(),
+		        # title in the middle
+		        plot.title = element_text(hjust = 3),
+		        text = element_text(size = 20),axis.text = element_text(size = 20)) +theme(aspect.ratio = 1)
+
+  box_theme <- theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # title in the middle
+        plot.title = element_text(hjust = 3),
+		        text = element_text(size = 20),axis.text = element_text(size = 20)) +theme(aspect.ratio = 1)
+
+```
+
+
+# 1. load CEBPA clusters
+
+```{r}
+Peak_clusters_path <- "./DiffPeakClusters/"
+  dir(Peak_clusters_path)
+  DiffPeak_clusters <- list()
+  Files<-  dir(Peak_clusters_path)[grep(dir(Peak_clusters_path), pattern = "*.bed")]
+
+  for(i in seq(1,length(Files))){
+    # i=1
+    DiffPeak_clusters[[paste0("C",i)]]<-read.table(paste0(Peak_clusters_path,Files[i]),header = F)
+
+    colnames(DiffPeak_clusters[[paste0("C",i)]]) <- c("chr","start","end","idx")
+  }
+  lapply(DiffPeak_clusters, dim)
+```
+
+
+```{r}
+head(DiffPeak_clusters[["C1"]])
+```
+#2. load two big cluster of DEGs 
+
+
+
+```{r}
+
+
+Cluster1_down <- read.table(".Cluster1_down_genes.txt")$V1
+length(Cluster1_down)
+Cluster2_up <- read.table(".Cluster2_Up_genes.txt")$V1
+length(Cluster2_up)
+```
+```{r}
+TPM<- read.csv(".TPM.csv")
+TPM <- select(TPM,-X)
+
+names(TPM)
+```
+
+
+```{r}
+Ctrl_mean <- apply(TPM[,2:4],1,mean)
+RA4d_mean <- apply(TPM[,11:13],1,mean)
+length(Ctrl_mean)
+length(RA4d_mean)
+
+up <- TPM[ RA4d_mean>Ctrl_mean,]$Gene
+down <- TPM[ RA4d_mean<Ctrl_mean,]$Gene
+length(up)
+length(down)
+Cluster2_up <- up
+Cluster1_down <- down
+```
+### Promoter: DEG TSS+/- 1kb
+
+```{r}
+hg19_gtf_reduce<- read.table("/Users/kai/Library/CloudStorage/GoogleDrive-qchen2019@gwmail.gwu.edu/My Drive/0_Personal/00_Project/PHA/00_StartOver_2022/integrated/hg19_2015_reduced.bed",sep ="\t",header = T)
+
+dim(hg19_gtf_reduce)
+head(hg19_gtf_reduce)
+```
+
+
+
+```{r}
+# get TSS 
+
+hg19_gtf_reduce[["TSS"]] <- ifelse(hg19_gtf_reduce$strand == "-",hg19_gtf_reduce$end,hg19_gtf_reduce$start)
+tail(hg19_gtf_reduce)
+
+hg19_TSS<- hg19_gtf_reduce[,c("gene_name","TSS","strand","seqnames")]
+
+head(hg19_TSS)
+
+dim(hg19_TSS)
+```
+
+#### extend TSS +/-1kb ( no negative values )
+```{r}
+d = 1000
+
+hg19_TSS[["TSS_Up1k"]] <- ifelse(hg19_TSS$strand == "-",hg19_TSS$TSS + d,hg19_TSS$TSS-d)
+
+hg19_TSS[["TSS_Down1k"]] <- ifelse(hg19_TSS$strand == "-",hg19_TSS$TSS - d,hg19_TSS$TSS+d)
+
+head(hg19_TSS)
+
+  
+hg19_TSS[which(hg19_TSS$TSS_Up1k <0),"TSS_Up1k"] <- 0
+hg19_TSS[which(hg19_TSS$TSS_Down1k <0),"TSS_Down1k"] <- 0
+
+Promoters <- hg19_TSS 
+```
+
+### add TSS +/-1k to DEG clusters
+```{r}
+Cluster1_down_TSS1k<-Promoters[which(Promoters$gene_name %in% Cluster1_down ),c("seqnames","TSS_Up1k","TSS_Down1k","gene_name")]
+
+dim(Cluster1_down_TSS1k) ## more than the gene #
+## debug: some seqnames is not typical: like chr6_cox_hap2, remove those ones
+
+unique(Cluster1_down_TSS1k$seqnames)
+
+chromosomes <-  c(paste0("chr",1:22),"chrX","chrY" )
+
+
+Cluster1_down_TSS1k <- Cluster1_down_TSS1k[which(Cluster1_down_TSS1k$seqnames %in% chromosomes),]
+
+cat("missed genes: \n")
+dim(Cluster1_down_TSS1k)[1]- length(Cluster1_down)  # still miss some genes
+
+
+Cluster1_down_TSS1k["start"]<-apply(Cluster1_down_TSS1k[,c("TSS_Up1k","TSS_Down1k")],1,min)
+Cluster1_down_TSS1k["end"]<-apply(Cluster1_down_TSS1k[,c("TSS_Up1k","TSS_Down1k")],1,max)
+
+Cluster1_down_TSS1k <- Cluster1_down_TSS1k[,c("seqnames","start","end","gene_name")]
+head(Cluster1_down_TSS1k)
+```
+
+
+```{r}
+Cluster2_up_TSS1k<-Promoters[which(Promoters$gene_name %in% Cluster2_up ),c("seqnames","TSS_Up1k","TSS_Down1k","gene_name")]
+dim(Cluster2_up_TSS1k) ## more than the gene #
+
+length(Cluster2_up)
+
+chromosomes <-  c(paste0("chr",1:22),"chrX","chrY" )
+
+Cluster2_up_TSS1k <- Cluster2_up_TSS1k[which(Cluster2_up_TSS1k$seqnames %in% chromosomes),]
+
+cat("missed genes: \n")
+dim(Cluster2_up_TSS1k)[1]- length(Cluster2_up)  # still miss some genes
+
+
+
+Cluster2_up_TSS1k["start"]<-apply(Cluster2_up_TSS1k[,c("TSS_Up1k","TSS_Down1k")],1,min)
+Cluster2_up_TSS1k["end"]<-apply(Cluster2_up_TSS1k[,c("TSS_Up1k","TSS_Down1k")],1,max)
+
+Cluster2_up_TSS1k <- Cluster2_up_TSS1k[,c("seqnames","start","end","gene_name")]
+head(Cluster2_up_TSS1k)
+
+```
+
+# 3. up DEG associate CEBPA peaks
+
+
+
+```{r}
+# two clusters of DEGs
+names(Cluster1_down_TSS1k)<- c("chr","start","end","Gene")
+names(Cluster2_up_TSS1k)<- c("chr","start","end","Gene")
+head(Cluster2_up_TSS1k)
+```
+
+## CEBPA TPM (signal) and clusters
+
+```{r}
+# all peaks
+Peak <- read.csv("./CEBPA_merged_pooled_Peaks.bed",sep= "\t", header = F)
+names(Peak) <- c("chr","start","end","idx")
+dim(Peak)
+```
+
+
+```{r}
+CEBPA <- read.csv("./DiffPeak/TPM_RIP_norm.csv")
+dim(CEBPA)
+head(CEBPA)
+```
+
+```{r}
+CEBPA_TPM <- cbind(Peak,CEBPA)
+head(CEBPA_TPM)
+```
+
+
+
+
+
+
+```{r}
+df_list <- list()
+
+for (C in names(DiffPeak_clusters)){
+  
+  # C = names(DiffPeak_clusters)[1]
+  cat(C,"\n")
+  
+  ov<- findOverlaps(GRanges(DiffPeak_clusters[[C]]),GRanges(Cluster2_up_TSS1k))
+  
+  OV_df <- data.frame(DiffPeak_clusters[[C]][ov@from,],Cluster2_up_TSS1k[ov@to,])
+  
+  dim(OV_df)
+  OV_df<- merge(x= OV_df,y= CEBPA_TPM,by="idx",all.x = T)
+  df_list[[C]] <- OV_df
+  
+}
+```
+```{r}
+Up_DEG_CEBPA <- Reduce(full_join,df_list)
+dim(Up_DEG_CEBPA)
+
+```
+
+```{r}
+head(Up_DEG_CEBPA)
+```
+
+```{r}
+Up_DEG_CEBPA_unique <- Up_DEG_CEBPA[!duplicated(Up_DEG_CEBPA$idx),]
+dim(Up_DEG_CEBPA_unique)
+
+names(Up_DEG_CEBPA_unique)
+```
+
+
+```{r}
+CEBPA_df <- Up_DEG_CEBPA_unique[c(1,12:20)]
+rownames(CEBPA_df) <- seq(1,dim(CEBPA_df)[1])
+```
+
+### output the DEGs
+
+```{r}
+write.csv(Cluster2_up_TSS1k[which(Cluster2_up_TSS1k$Gene %in% Up_DEG_CEBPA_unique$Gene),],"./CEBPA_ov_Up_DEGs_TSS1k.csv",row.names = F)
+```
+
+## RNA TPM
+```{r}
+RNA_TPM <- read.csv(".TPM.csv")
+RNA_TPM<- select(RNA_TPM,-X)
+head(RNA_TPM)
+```
+
+```{r}
+RNA_df <-  RNA_TPM[which(RNA_TPM$Gene %in% Up_DEG_CEBPA_unique$Gene ),]
+dim(RNA_df)
+rownames(RNA_df) <- seq(1,dim(RNA_df)[1])
+```
+
+# ---------------------------
+
+## 4. Up DEG associated ATAC
+
+### ATAC TPM (signal)
+
+```{r}
+## all Gene data
+ATAC <- read.csv("./TPM_RIP_norm.csv")
+
+dim(ATAC)
+```
+
+
+```{r}
+peak <- read.csv("./HL60_merged_pooled_Peaks.bed",sep = "\t",header = F)
+dim(peak)
+names(peak) <- c("chr","start","end","idx")
+
+```
+
+
+```{r}
+
+ATAC_TPM <- cbind(peak,ATAC)
+head(ATAC_TPM)
+```
+```{r}
+
+  DEG_select <- Cluster2_up_TSS1k[which(Cluster2_up_TSS1k$Gene %in% Up_DEG_CEBPA_unique$Gene ),]
+  ov<- findOverlaps(GRanges(ATAC_TPM),GRanges(DEG_select))
+  
+  OV_df <- data.frame(ATAC_TPM[ov@from,],DEG_select[ov@to,])
+  
+  dim(OV_df)
+
+```
+
+```{r}
+ATAC_df <- ATAC_TPM[ov@from,4:dim(ATAC_TPM)[2]]
+rownames(ATAC_df) <- seq(1,dim(ATAC_df)[1])
+```
+
+
+
+
+
+
+
+
+## 5. plot them together
+
+### get mean
+```{r}
+head(CEBPA_df)
+```
+
+
+
+```{r}
+CEBPA <- CEBPA_df %>%
+  pivot_longer(cols = -idx, 
+               names_to = c("remove","Condition", "Replicate"), 
+               names_sep = "_") 
+CEBPA <- select(CEBPA, -remove)
+CEBPA$type <- "CEBPA"
+head(CEBPA)
+```
+
+
+```{r}
+CEBPA_mean <- CEBPA %>%
+  group_by(idx,type, Condition) %>%
+  summarise(Mean_Expression = mean(value)) %>%
+  pivot_wider(names_from = Condition, values_from = Mean_Expression)
+
+head(CEBPA_mean)
+```
+
+
+
+```{r}
+names(CEBPA_mean) <- c("idx","type","RA_0h","RA_4d","RA_4h")
+head(CEBPA_mean)
+```
+
+```{r}
+head(RNA_df)
+RNA_df$type <- "RNA"
+```
+
+```{r}
+
+RNA_mean <- RNA_df %>%
+  pivot_longer(cols = -c(Gene,type), 
+               names_to = c("Condition", "Replicate"), 
+               names_sep = "_") %>%
+  group_by(Gene,type, Condition) %>%
+  summarise(Mean_Expression = mean(value)) %>%
+  pivot_wider(names_from = Condition, values_from = Mean_Expression)
+
+head(RNA_mean)
+```
+```{r}
+colnames(RNA_mean) <- c("Gene","type","RA_0h","RA_2d","RA_4d","RA_4h")
+```
+
+### ATAC
+```{r}
+head(ATAC_df)
+```
+
+```{r}
+ATAC <- ATAC_df %>%
+  pivot_longer(cols = -c(idx), 
+               names_to = c("remove","Condition", "Replicate"), 
+               names_sep = "_") 
+ATAC <- select(ATAC, -remove)
+
+
+ATAC$type <- "ATAC"
+head(ATAC)
+```
+
+
+```{r}
+ATAC_mean <- ATAC %>%
+  group_by(Condition,idx,type) %>%
+  summarise(Mean_Expression = mean(value)) %>%
+  pivot_wider(names_from = Condition, values_from = Mean_Expression)
+
+head(ATAC_mean)
+```
+
+
+```{r}
+names(ATAC_mean) <- c("idx","type","RA_2d","RA_4d","RA_4h","RA_0h")
+length(unique(ATAC_mean$idx))
+```
+
+
+
+### ocean-c  (does not work) or CEBPA interactions (work)
+
+```{r}
+chrInt <- read.csv("./DEG_up_TSS_5bin_CEBPA_Rowsum.csv")
+head(chrInt)
+```
+
+```{r}
+ChrInt_mean <- chrInt[which(chrInt$gene_name %in% Up_DEG_CEBPA_unique$Gene ),]
+ChrInt_mean <- ChrInt_mean[,c(6:9)]
+
+head(ChrInt_mean)
+```
+```{r}
+names(ChrInt_mean) <- c("Gene","RA_0h","RA_4h","RA_4d")
+ChrInt_mean$type <- "CEBPAChrInt"
+```
+
+
+
+### data combination
+
+```{r}
+all_df <- rbind(CEBPA_mean,RNA_mean,ATAC_mean,ChrInt_mean)
+names(all_df)
+```
+
+
+```{r}
+all_df_longer <- all_df %>%
+  pivot_longer(cols = -c(idx,Gene,type), 
+               names_to = c("remove","Condition"), 
+               names_sep = "_") 
+all_df_longer <- select(all_df_longer, -remove)
+head(all_df_longer)
+```
+
+
+
+### overallmean line 
+```{r}
+overall_mean <- all_df_longer %>%
+  group_by(type, Condition) %>%
+  summarise(Mean_Expression = mean(value)) %>%
+  pivot_wider(names_from = Condition, values_from = Mean_Expression)
+overall_mean
+```
+
+
+```{r}
+overall_mean_longer <- overall_mean %>%
+  pivot_longer(cols = -c(type), 
+               names_to = c("Condition"))
+
+overall_mean_longer
+
+overall_mean_longer[which(overall_mean_longer$type== "CEBPA" & overall_mean_longer$Condition == "2d"),]["value"] <- (overall_mean_longer[which(overall_mean_longer$type== "CEBPA" & overall_mean_longer$Condition == "4h"),]["value"]+overall_mean_longer[which(overall_mean_longer$type== "CEBPA" & overall_mean_longer$Condition == "4d"),]["value"])/2
+
+
+overall_mean_longer[which(overall_mean_longer$type== "CEBPAChrInt" & overall_mean_longer$Condition == "2d"),]["value"] <- (overall_mean_longer[which(overall_mean_longer$type== "CEBPAChrInt" & overall_mean_longer$Condition == "4h"),]["value"]+overall_mean_longer[which(overall_mean_longer$type== "CEBPAChrInt" & overall_mean_longer$Condition == "4d"),]["value"])/2
+```
+```{r}
+
+overall_mean_longer$Condition<- factor(overall_mean_longer$Condition,levels = c("0h","4h","2d","4d"))
+
+# when x is category, need special approach: as.numeric
+ggplot(overall_mean_longer, aes(x = as.numeric(Condition), y = value, color = type)) +
+  geom_point(size = 0.1) +
+  geom_line()+scale_x_discrete(limits = c("0h","4h","2d","4d"))+box_theme
+```
+
+```{r}
+# Then mannually ajust all figure y axis: 0-1
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
