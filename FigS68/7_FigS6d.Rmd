@@ -1,0 +1,156 @@
+---
+title: "7_FigS6d"
+author: "Qing Chen"
+
+output: 
+  html_document:
+    number_sections: true
+    toc: true
+    toc_depth: 3
+    toc_float: 
+      collapsed: false
+      smooth_scroll: false
+---
+
+# Goal:
+
+plot IS profile use R
+
+# Pay attention
+
+IS is TSS +/- 500bin
+
+Bu when plot: TSS+/- 50bin
+
+TSS+/- 50bin pileup plot also consistent with the IS results
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+knitr::opts_knit$set(root.dir = './')
+
+getwd()
+
+```
+
+```{r}
+rm(list = ls())
+PATH <- "./"
+```
+
+
+
+
+## load library
+```{r}
+library(ggplot2)
+library(ggrepel)
+library(stringr)
+library(DESeq2)
+library(edgeR)
+library(grid)
+library(factoextra)
+library(cluster)
+library(pbapply)
+library(pheatmap)
+library(openxlsx)
+library(ggrepel)
+library(GenomicFeatures)
+library(GenomicRanges)
+# library("org.Rn.eg.db") # rat
+library("org.Hs.eg.db") # human
+library("org.Mm.eg.db") # mm
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
+library("biomaRt")
+library(ChIPseeker)
+library(ReactomePA)
+library(clusterProfiler)
+library(openxlsx)
+library(rtracklayer)
+library(plyr) # to use ioin
+library(dplyr)# use full_join
+library(gtools) # mixsort
+library(grid)
+library(futile.logger)
+library(VennDiagram)
+library(tidyr)
+
+
+```
+
+
+```{r}
+plot_theme <- theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # title in the middle
+        plot.title = element_text(hjust = 0.5),
+        text = element_text(size = 15),axis.text = element_text(size = 15)) +theme(aspect.ratio = 1)
+```
+
+# load the data and plot
+```{r}
+IS <- read.csv(paste0(PATH,"IS_DEG_2cluster_TSS_IS_Profiles_r10k_500binofiles.csv"))
+head(IS)
+
+# IS <-select(IS,-X)
+head(IS)
+
+```
+
+```{r}
+colnames(IS)
+```
+
+```{r}
+IS_longer <- IS %>% pivot_longer(cols = colnames(IS)[c(2:(length(colnames(IS))-1))], names_to = "DEG_clusters_TSS",values_to= "score" ) %>% as.data.frame()
+head(IS_longer)
+```
+
+```{r}
+p <- ggplot(IS_longer, aes(x = X,y =score,col = as.factor(Group))) + geom_line()+ facet_grid( DEG_clusters_TSS~. )
+
+p
+
+```
+
+```{r}
+
+plot_theme <- theme_bw() +
+  theme(axis.line = element_line(colour = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # title in the middle
+        plot.title = element_text(hjust = 0.5),
+        text = element_text(size = 10),axis.text = element_text(size = 10)) 
+
+
+p <- ggplot(IS_longer, aes(x = X,y =score,col = as.factor(Group))) + geom_line()+ facet_grid( DEG_clusters_TSS~. )+plot_theme
+
+
+
+p
+```
+```{r}
+ggplot(IS_longer, aes(x = X,y =score,col = as.factor(Group))) + geom_line()+ facet_grid( DEG_clusters_TSS~. )+plot_theme
+```
+```{r}
+p <- ggplot(IS_longer, aes(x = X,y =score,col = as.factor(Group))) + geom_line()+ facet_grid( DEG_clusters_TSS~. )+plot_theme+ xlim(400,600)
+
+p
+```
+
+
+```{r}
+
+p <- ggplot(IS_longer, aes(x = X,y =score,col = as.factor(Group))) + geom_line()+ facet_grid( DEG_clusters_TSS~. )+plot_theme+ xlim(450,550)
+
+p
+```
+

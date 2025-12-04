@@ -1,0 +1,821 @@
+---
+title: "1_Fig1_abcd_FigS2abcdf_OceanC"
+output: 
+  html_document:
+    number_sections: true
+    toc: true
+    toc_depth: 3
+    toc_float: 
+      collapsed: false
+      smooth_scroll: false
+---
+
+#--------------------Goal----------------
+
+RCP/AB Saddle/ATA on hic data
+
+#-----set up ------------------------------
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.pos = 'h')
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+### your working directory
+curr_path <- "......."
+
+knitr::opts_knit$set(root.dir = curr_path)
+
+getwd()
+```
+
+#----- load library
+```{r echo=T, warning=FALSE, error=F, results='hide'}
+
+library(GENOVA)
+library(pkgfilecache)
+library("strawr")
+
+```
+
+
+#----- Input data
+
+
+```{r centromere, cache=F}
+
+# download centromere info here
+# https://hgdownload.cse.ucsc.edu/goldenpath/hg19/database/
+
+centromeres = read.delim('./Cenreomeres_hg19.txt',
+                         sep = '\t',
+                         h = F,
+                         stringsAsFactors = F)
+head(centromeres)
+
+
+```
+
+#### load all the data  HiC-Pro 
+
+
+```{r}
+options(scipen=10)# The integer penalty is a number you can set manually
+getwd()
+Hic_Path = "./hic_results/matrix/hic_results/matrix/"
+dir(Hic_Path)
+```
+
+
+```{r}
+Conditions = c("Ctrl","4h","2d","4d")
+Colors = c("black","red","blue","darkblue")
+# Resolutions = c(10e3,5*10e3,5*100e3,1e6)
+Resolutions = c(10000,50000,100000,500000,1000000)
+Resolutions # options(scipen=10)
+```
+
+
+only read once and then save it for future usage!!
+```{r}
+
+ # different sample use different color
+ hic_list = list()
+ # r = 500000
+ for (i in seq(1,4)){
+   for (r in Resolutions){
+     if (i ==1 ){
+        if(r/1000==1000){
+          print(paste0(Conditions[i],"_",r/1000000,"Mb"))
+
+          hic_list[[paste0(Conditions[i],"_",r/1000000,"Mb")]] <- load_contacts(
+
+            signal_path = paste0(Hic_Path,"HL60_",Conditions[i],"/raw/",toString(r),"/","HL60_",Conditins[i],"_",toString(r),".matrix"),
+            indices_path = aste0(Hic_Path,"HL60_",Conditions[i],"/raw/",toString(r),"/","HL60_",Conditions[i],"_",toString(r),"_ab.bed"),
+            sample_name = paste0(Conditions[i],"_",r/1000000,"Mb"),
+            resolution = r,
+           balancing = 'KR', # this is the default, so no need to use ice normed. only one is OK, ICE r KR
+ 			     colour = Colors[i])
+
+        }else{
+          print(paste0(Conditions[i],"_",r/1000,"Kb"))
+          hic_list[[paste0(Conditions[i],"_",r/1000,"Kb")]] <- load_contacts(
+            signal_path = paste0(Hic_Path,"HL60_",Conditions[i],"/raw/",toString(r),"/","HL60_",Conditins[i],"_",toString(r),".matrix"),
+            indices_path = aste0(Hic_Path,"HL60_",Conditions[i],"/raw/",toString(r),"/","HL60_",Conditions[i],"_",toString(r),"_ab.bed"),
+            sample_name = paste0(Conditions[i],"_",r/1000,"Kb"),
+            resolution = r,
+            balancing = 'KR', # this is the default
+ 			     colour = Colors[i])
+        }
+
+ #
+     }else{
+       print(paste0("RA",Conditions[i],"_",r/1000,"Kb"))
+
+       if(r/1000==1000){
+
+         print(paste0("RA",Conditions[i],"_",r/1000000,"Mb"))
+         hic_list[[paste0("RA",Conditions[i],"_",r/1000000,"Mb")]] <- load_contacts(
+           signal_path = paste0(Hic_Path,"HL60_",Conditions[i],"/raw/",toString(r),"/","HL60_",Conditios[i],"_",toString(r),".matrix"),
+            indices_path = aste0(Hic_Path,"HL60_",Conditions[i],"/raw/",toString(r),"/","HL60_",Conditions[i],"_",toString(r),"_ab.bed"),
+            sample_name = paste0("RA",Conditions[i],"_",r/1000000,"Mb"),
+            resolution = r,
+            balancing = 'KR', # this is the default
+ 			     colour = Colors[i] )
+       }else{
+         print(paste0("RA",Conditions[i],"_",r/1000,"Kb"))
+         hic_list[[paste0("RA",Conditions[i],"_",r/1000,"Kb")]] <- load_contacts(
+           signal_path = paste0(Hic_Path,"HL60_",Conditions[i],"/raw/",toString(r),"/","HL60_",Conditios[i],"_",toString(r),".matrix"),
+            indices_path = aste0(Hic_Path,"HL60_",Conditions[i],"/raw/",toString(r),"/","HL60_",Conditions[i],"_",toString(r),"_ab.bed"),
+            sample_name = paste0("RA",Conditions[i],"_",r/1000,"Kb"),
+            resolution = r,
+            balancing = 'KR', # this is the default
+ 			     colour = Colors[i] )
+       }
+
+     }
+   }
+ }
+
+ names(hic_list)
+```
+
+
+#### save the data for future use.
+
+No need to read them again, just save and load it. to speed up
+
+```{r}
+getwd() # it depends on 
+curr_path <- "./hic_results/"
+```
+
+
+```{r}
+getwd()
+save(hic_list, file = "hic_list.Rdata")
+
+load(file = "hic_list.Rdata")
+
+names(hic_list)
+
+```
+#### Take a look at the data information
+
+
+
+```{r}
+str(hic_list$Ctrl_10Kb, width = 60,   vec.len=0, strict.width = 'wrap')
+```
+
+```{r}
+as.data.frame(
+  attributes(hic_list$Ctrl_10Kb)
+  [-1])
+```
+
+
+\pagebreak
+
+# Genome-wide analyses
+A good place to start your analyses are some functions on a genome-wide level. We can assess the quality of the library, identify translocations and generate contact probability (aka scaling or interaction decay plots).
+
+## *Cis*-quantification
+Work by the group of Amos Tanay showed that the expected amount of intra-chromosomal contacts is the range of 90 to 93 percent [@Olivares-Chauvet2016]. Assuming that any extra inter-chromosomal contacts are due to debris/noise, the user might aspire to get the *cis*-percentages as close to 90% as possible. To compute the percentage of per-sample *cis*-contacts, we simply provide `cis_trans()` with the contacts-object of interest. The output can be used to make a barplot of the percentages *cis* per sample (figure \@ref(fig:cis)). 
+
+
+
+```{r}
+names(hic_list)[grep(names(hic_list),pattern = "50Kb")]
+
+cisChrom_out <- cis_trans(list(hic_list$Ctrl_50Kb,hic_list$RA4h_50Kb,hic_list$RA2d_50Kb,hic_list$RA4d_50Kb ))
+
+barplot(cisChrom_out$cis, names.arg = cisChrom_out$sample, ylim = c(0, 100) )
+abline(h = cisChrom_out$cis[1], col = 'red', lty = 3)
+abline(h = cisChrom_out$cis[2], col = 'red', lty = 3)
+abline(h = cisChrom_out$cis[3], col = 'red', lty = 3)
+abline(h = cisChrom_out$cis[4], col = 'red', lty = 3)
+```
+
+
+
+\pagebreak
+
+## Chromosome plots
+Hi-C has been shown to be a powerful data-source to detect chromosomal rearrangements [@Harewood2017]. To find possible translocations, we can plot the genome-wide enrichment of interactions between all combinations of chromosomes. The values in the matrix are $log_2(observed/expected)$. The Hap1 cell line has two known translocations, which we can easily see in the resulting plot (figure \@ref(fig:chromMat1)). To narrow-in on this location, you could use the `trans.compartment.plot`-function (discussed below).
+
+
+```{r}
+chr_mat <- chromosome_matrix(hic_list$Ctrl_50Kb)
+visualise(chr_mat,colour_lim=c(-2,2))
+
+```
+
+```{r}
+chr_mat <- chromosome_matrix(hic_list$RA4h_50Kb)
+visualise(chr_mat,colour_lim=c(-2,2))
+
+```
+
+```{r}
+chr_mat <- chromosome_matrix(hic_list$RA2d_50Kb)
+visualise(chr_mat,colour_lim=c(-2,2))
+
+```
+
+```{r}
+chr_mat <- chromosome_matrix(hic_list$RA4d_50Kb)
+visualise(chr_mat,colour_lim=c(-2,2))
+
+```
+
+
+```{r}
+chr_mat <- chromosome_matrix(explist = list(hic_list$Ctrl_10Kb,hic_list$RA4h_10Kb,hic_list$RA2d_10Kb ,hic_list$RA4d_10Kb))
+
+visualise(chr_mat)
+
+```
+
+
+```{r}
+
+
+chr_mat <- chromosome_matrix(explist = list(hic_list$Ctrl_1Mb,hic_list$RA4h_1M,hic_list$RA2d_1Mb ,hic_list$RA4d_1Mb ),expected = "trans")
+
+visualise(chr_mat)
+```
+
+```{r}
+chr_mat <- chromosome_matrix(explist = list(hic_list$Ctrl_1Mb,hic_list$RA4h_1M,hic_list$RA2d_1Mb ,hic_list$RA4d_1Mb ),expected = "cis")
+
+visualise(chr_mat)
+```
+
+
+
+\pagebreak
+
+## RCP
+The Relative Contact Probability (RCP) computes the contact probability as a function of genomic distance, as described in [@Lieberman-Aiden2009]. This can be computed for a specific set of chromosomes or genome-wide. To ignore centromeric contacts (which have a aberrant RCP), centromeric information is needed. This is taken from the experiment-object or found empirically by comparing trans-interactions.
+
+
+
+```{r}
+
+RCP_out <- RCP(explist = list(hic_list$Ctrl_50Kb,hic_list$RA4h_50Kb,hic_list$RA2d_50Kb,hic_list$RA4d_50Kb ),  chromsToUse = "chr1")
+
+head(RCP_out$smooth)
+```
+
+
+```{r RCPPLOT1, cache=F, message=FALSE, fig.wide= T , fig.cap= "RCP. Every facet shows the RCP of one chromosome."}
+
+# help(visualise)
+
+visualise(RCP_out)
+
+```
+
+### Differentials
+We can directly compare samples to one another (for example WT versus WAPL). To plot this, the `metric` argument has to be set to `lfc` and `contrast` to 1, indicating the WT sample (figure \@ref(fig:RCPPLOT2)). This plots the log-fold change of average probabilities.
+
+```{r RCPPLOT2, message=FALSE,  cache=F, fig.small= T , fig.cap= "RCP in lfc-mode.", warning=FALSE}
+# Plot RCP: combined
+visualise(RCP_out, contrast = 1, metric = 'lfc')
+```
+
+\pagebreak
+
+## A- and B-compartments
+Dividing chromosomes into A- and B-compartments requires the calculation of a compartment score along with information about what parts of the genome are active. To infer which compartment is A (viewed as the active state) and which is B, we can add a BED-`data.frame` of ChIP-seq peaks from active histone marks (e.g. H3K27ac, H3K4me1). Below, we can use the `compartment_score()` function with H3K27ac peaks to distinguish the compartments. The compartment score uses the first eigenvector of an eigendecomposition on the distance-dependant observed/expected matrix to get an unsigned compartment score.  This score is then correlated to H3K27ac presence to yield signed compartment scores that can be interpreted as A compartments when positive and B compartments when negative.
+
+
+
+```{r}
+
+
+# use more significant signals: FE>10
+H3K27acPeaks = read.delim('./H3K27ac/ENCFF763UAG_HL60_H3K27ac_FE10_hg19.bed', header = FALSE)
+dim(H3K27acPeaks)
+
+
+```
+
+
+```{r}
+head(H3K27acPeaks)
+
+H3K27acPeaks<- H3K27acPeaks[
+  with(H3K27acPeaks, order(V1, V2)),
+]
+
+rownames(H3K27acPeaks) <- 1:nrow(H3K27acPeaks)
+dim(H3K27acPeaks)
+```
+
+
+```{r}
+(centromeres$V1)
+
+# min(centromeres$V2)
+# max(centromeres$V3)
+
+H3K27acPeaks_extract <- data.frame()
+
+for (i in c(paste0("chr",1:22),"chrX") ){
+  # i = "chr1"
+  temp <- H3K27acPeaks[H3K27acPeaks$V1==i & (H3K27acPeaks$V3< centromeres[which(centromeres$V1==i),"V2"]  | H3K27acPeaks$V2 > centromeres[which(centromeres$V1==i),"V3"] ) ,]
+
+  print(dim(temp))
+  H3K27acPeaks_extract<- rbind(H3K27acPeaks_extract,temp)
+  
+}
+
+dim(H3K27acPeaks_extract)
+
+```
+
+
+
+```{r}
+cs = compartment_score(list(hic_list$Ctrl_1Mb,hic_list$RA4h_1Mb,hic_list$RA2d_1Mb,hic_list$RA4d_1Mb))
+cs
+head(cs$compart_scores)
+
+CS_out <- sign_compartmentscore(cs , bed = H3K27acPeaks) # but it did work !!, the sign reversed compare with the cs 
+head(CS_out$compart_scores)
+```
+
+
+```{r}
+
+visualise(CS_out, chr = "chr5") # this works
+
+
+```
+
+
+### Saddle-analyses
+To illustrate the self-preference of compartments, one can use the `saddle()` function to perform a compartment score 'quantile versus quantile' analysis. Every chromosome arm is divided into quantiles based on the compartment score, and distance dependent observed over expected is computed. Every combination of quantile bins is then averaged to produce the saddle analysis.
+```{r }
+
+saddle_out = saddle(list(hic_list$Ctrl_1Mb,hic_list$RA4h_1Mb,hic_list$RA2d_1Mb,hic_list$RA4d_1Mb), 
+                   CS_discovery = CS_out,
+                   bins = 30)
+
+visualise(saddle_out)
+```
+
+```{r }
+
+saddle_out = saddle(list(hic_list$RA4h_1Mb,hic_list$RA2d_1Mb,hic_list$RA4d_1Mb), 
+                   CS_discovery = CS_out,
+                   bins = 30)
+
+visualise(saddle_out)
+```
+
+```{r }
+
+saddle_out = saddle(list(hic_list$RA2d_1Mb,hic_list$RA4d_1Mb), 
+                   CS_discovery = CS_out,
+                   bins = 30)
+
+visualise(saddle_out)
+```
+
+
+\pagebreak
+
+
+
+# TADs
+Topologically Associated Domains (TADs) are $\pm0.8-2\text{Mb}$ regions, which are seen as triangles in the matrix: regions that have more interactions within than outside. GENOVA has a repertoire of functions to generate and analyse TADs. Fist, we will use the insulation score to call TADs and compare the strength of TAD-borders between samples. Next, we will explore `ATA()` to analyse aggregates of TADs. Finally, we'll investigate whether TADs interact with their neighbouring TADs.
+
+## Insulation
+To estimate the strength of TAD-borders, we can look at the insulation-score [@Crane2015]. At a TAD-border, this score reaches a local minimum: the lower the score, the stronger the insulation. We can generate this for a specific sliding-window size with `insulation_score()`. The choice of window-size is quite tricky, since smaller windows will be sensitive to very local effects (i.e. mapping-errors, loops), while too big windows will lead a an under-representation. Luckily, we can generate a domainogram of a range of window-sizes for a specific genomic region with `insulation_domainogram`.
+
+### Domainogram
+To make a domainogram, we simply choose our experiment and our region of interest. The window-size is directly proportional to the amount of Hi-C bins.
+
+
+
+```{r }
+ID <- insulation_domainogram(
+  hic_list$Ctrl_10Kb,
+  chrom = 'chr7', 
+  start = 25e6,
+  end   = 29e6, 
+  window_range = c(1, 101),
+  step = 2
+)
+visualise(ID)
+```
+
+A nice feature of `hic_matrixplot()` is that if you use it without plotting anything on the sides (i.e. genes and/or ChIP-tracks), you can insert other plots. This allows us to plot the domainogram directly under the matrix, making it very easy to compare the insulation with the actual data (figure \@ref(fig:domainogram2)).
+
+```{r}
+hic_matrixplot(exp1 = hic_list$Ctrl_10Kb,
+               chrom = 'chr7',
+               start = 25e6,
+               end=29e6, 
+               # tads = WT_TADs, # see ATA
+               # tads.type = 'upper', # only plot in lower triangle
+               # tads.colour = '#91cf60', # green TAD-borders
+               cut.off = 25, # upper limit of contacts
+               skipAnn = T) # skip the outside annotation
+plot(ID, minimalist = TRUE)
+```
+
+\pagebreak
+
+### Computing the insulation score
+To get the genome-wide insulation score in .bedgraph-format ^[BED3 + signal column], we provide the `insulation_score()` function, that takes a contacts-object and the window-size of choice. As can be seen in the domainogram above, at $W=25$ we will catch the majority of the hotspots, while limiting the amount of noise. The `visualise()`-function can show both the insulation-scores and the difference between them.
+
+```{r }
+
+H_10kb_insulation <- insulation_score(
+  list(hic_list$Ctrl_10Kb,hic_list$RA4h_10Kb),
+  window = 25
+)
+
+visualise(H_10kb_insulation,
+          chr = 'chr8', start = 10e6, end=29e6
+          # contrast = 1
+          )
+```
+
+```{r }
+H_10kb_insulation <- insulation_score(
+  list(hic_list$Ctrl_10Kb,hic_list$RA4h_10Kb,hic_list$RA2d_10Kb,hic_list$RA4d_10Kb),
+  window = 25
+)
+
+
+visualise(H_10kb_insulation,
+          chr = 'chr7', start = 20e6, end=29e6,
+          contrast = 1)
+
+visualise(H_10kb_insulation,
+          chr = 'chr7',
+          # arm = "p",
+          contrast = 1)
+```
+
+
+\pagebreak
+
+## Call TADs
+The `insulation`-discovery object can also be used to call TADs.
+
+```{r }
+TADcalls <- call_TAD_insulation(H_10kb_insulation)
+```
+
+```{r}
+lapply(TADcalls,dim)
+```
+
+
+
+```{r}
+hic_matrixplot(exp1 = hic_list$Ctrl_10Kb,
+               exp2 = hic_list$RA4h_10Kb,
+               chrom = 'chr7',
+               start = 22e6,
+               end=27e6,
+               tads = list(TADcalls$Ctrl_10Kb, TADcalls$RA4h_10Kb), # see ATA
+               tads.type = list('lower', 'upper'), # only plot in lower triangle
+               tads.colour = c('green', 'blue'), # green TAD-borders
+cut.off = 50) # upper limit of contacts
+```
+```{r}
+dim(TADcalls$Ctrl_10Kb)
+dim(TADcalls$RA4h_10Kb)
+```
+
+\pagebreak
+
+## ATA
+
+TADs can be investigated globally by aggregating Hi-C matrix around TADs. In aggregate TAD analyses (ATA), because TADs have different sizes, they are rescaled to a uniform size and then the result is averaged across the genome.
+
+
+
+```{r}
+
+# use the TAD called above: 
+ATA_WTcalls <- ATA(list("Ctrl" = hic_list$Ctrl_10Kb, "RA4h"=hic_list$RA4h_10Kb,"RA2d"=hic_list$RA2d_10Kb,"RA4d"=hic_list$RA4d_10Kb),
+                      bed =TADcalls$Ctrl_10Kb)
+
+```
+
+We can use `visualise()` to plot the ATA-results.
+
+
+```{r }
+visualise(ATA_WTcalls, 
+          colour_lim = c(0,50),
+          colour_lim_contrast = c(-5,5), 
+          metric = "diff",
+          focus = 1) # which entry to use as comparison
+```
+
+
+\pagebreak
+
+## TAD+N
+
+### 0h VS 4h 2d 4d 
+
+### goal 1:  same y scale 
+```{r}
+TAD_N_RA4h   <- intra_inter_TAD(list("Ctrl" = hic_list$Ctrl_10Kb, "RA4h"=hic_list$RA4h_10Kb),
+                              tad_bed = TADcalls$RA4h_10Kb, 
+                              max_neighbour = 10)
+
+TAD_N_RA2d   <- intra_inter_TAD(list("Ctrl" = hic_list$Ctrl_10Kb, "RA2d"=hic_list$RA2d_10Kb),
+                              tad_bed = TADcalls$Ctrl_10Kb, 
+                              max_neighbour = 10)
+
+TAD_N_RA4d   <- intra_inter_TAD(list("Ctrl" = hic_list$Ctrl_10Kb, "RA4d"=hic_list$RA4d_10Kb),
+                              tad_bed = TADcalls$Ctrl_10Kb, 
+                              max_neighbour = 10)
+```
+
+```{r}
+visualise(discovery = TAD_N_RA4h,geom = 'boxplot')
+```
+
+```{r}
+# Define consistent y-axis limits for all plots
+y_limits <- c(-4, 4)  # Adjust based on your data range
+
+# Create plots with same y-axis
+visualise(discovery = TAD_N_RA4h, geom = 'boxplot', y_limits = y_limits)
+ visualise(discovery = TAD_N_RA2d, geom = 'boxplot', y_limits = y_limits) 
+visualise(discovery = TAD_N_RA4d, geom = 'boxplot', y_limits = y_limits)
+```
+```{r}
+# If you want all conditions in one plot
+library(patchwork)  # for combining plots
+
+p1 <- visualise(TAD_N_RA4h, geom = 'boxplot') + ggtitle("RA4h")
+p2 <- visualise(TAD_N_RA2d, geom = 'boxplot') + ggtitle("RA2d") 
+p3 <- visualise(TAD_N_RA4d, geom = 'boxplot') + ggtitle("RA4d")
+
+
+combined_plot <- p1 / p2 / p3 + 
+  plot_layout(guides = 'collect') &
+  ylim(-4, 4)
+
+combined_plot
+```
+
+
+```{r}
+pdf("./TAD_N_same_y_axis.pdf", width = 5, height = 15)
+combined_plot
+dev.off()
+```
+
+
+### goal 2: get medium levels for each distance 
+
+```{r}
+
+### 跟我自己算的 一样----
+
+# results
+# A data.table with two columns of left and right TAD identifiers and scores for the experiments in explist.
+dim(TAD_N_RA4h$tads)
+
+dim(TAD_N_RA4h$results)
+
+RA4h <- TAD_N_RA4h$results
+RA4h$dist <- RA4h$y -RA4h$x
+RA4h$log2 <- log2(RA4h$RA4h/RA4h$Ctrl)
+head(RA4h)
+
+
+aggregate(log2 ~ dist, data = RA4h, FUN = median)
+
+
+```
+
+```{r}
+# Extract the data that used for plot 
+res_4h <- visualise(discovery = TAD_N_RA4h,geom = 'boxplot')
+res_4h_data<- res_4h$data
+
+res_4h_median <- aggregate(value ~ diff, data = res_4h_data, FUN = median)
+colnames(res_4h_median)[2]<- "RA4h_median"
+
+res_2d <- visualise(discovery = TAD_N_RA2d,geom = 'boxplot')
+res_2d_data<- res_2d$data
+
+res_2d_median <- aggregate(value ~ diff, data = res_2d_data, FUN = median)
+colnames(res_2d_median)[2]<- "RA2d_median"
+
+res_4d <- visualise(discovery = TAD_N_RA4d,geom = 'boxplot')
+res_4d_data<- res_4d$data
+
+res_4d_median <- aggregate(value ~ diff, data = res_4d_data, FUN = median)
+colnames(res_4d_median)[2]<- "RA4d_median"
+
+
+```
+
+
+All median
+
+```{r}
+Medians <- cbind(res_4h_median,res_2d_median$RA2d_median,res_4d_median$RA4d_median)
+Medians
+write.csv(Medians,"./TAD_N_all_medians.csv")
+```
+
+
+### goal 3:add p-value from an appropriate statistical test for each TAD N distance
+
+
+```{r}
+# Extract the data that used for plot 
+res_4h <- visualise(discovery = TAD_N_RA4h,geom = 'boxplot')
+res_4h_data<- res_4h$data
+
+
+res_2d <- visualise(discovery = TAD_N_RA2d,geom = 'boxplot')
+res_2d_data<- res_2d$data
+
+
+res_4d <- visualise(discovery = TAD_N_RA4d,geom = 'boxplot')
+res_4d_data<- res_4d$data
+
+res_all_data <- rbind(res_4h_data,res_2d_data,res_4d_data)
+head(res_all_data)
+```
+```{r}
+ggplot(res_all_data, aes(x = diff, y = value, fill = variable)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("RA4h" = "red", "RA2d" = "blue", "RA4d" = "black")) +
+  stat_compare_means(
+    aes(group = variable),
+    method = "t.test", # or "wilcox.test", "anova"
+    label = "p.format", # shows p-value
+    label.y = max(res_all_data$value, na.rm = TRUE) * 1.1 # position above plot
+  ) +
+  labs(x = "Diff", y = "Value", fill = "Condition") +
+  theme_minimal()
+```
+
+#### t test
+```{r}
+
+pdf("./TAD_N_all_boxplot_with_P_ttest.pdf", width = 15,height = 15)
+# Define the comparisons you want
+
+my_comparisons <- list(c("RA4h", "RA2d"), c("RA2d", "RA4d"), c("RA4h", "RA4d"))
+
+ggplot(res_all_data, aes(x = diff, y = value, fill = variable)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("RA4h" = "red", "RA2d" = "blue", "RA4d" = "black")) +
+  stat_compare_means(
+    comparisons = my_comparisons,
+    method = "t.test",# or "wilcox.test"
+    label = "p.format",
+    tip.length = 0.01
+  ) +
+  labs(x = "Diff", y = "Value", fill = "Condition") +
+  theme_minimal()
+
+# If 'diff' has multiple categories and you want separate plots
+p <- ggplot(res_all_data, aes(x = variable, y = value, fill = variable)) +
+  geom_boxplot() +
+  facet_wrap(~ diff) +
+  scale_fill_manual(values = c("RA4h" = "red", "RA2d" = "blue", "RA4d" = "black")) +
+  stat_compare_means(
+    comparisons = list(c("RA4h", "RA2d"), c("RA2d", "RA4d"), c("RA4h", "RA4d")),
+    label = "p.format"
+  ) +
+  theme_minimal()
+p
+
+## increase label size
+p <- ggplot(res_all_data, aes(x = variable, y = value, fill = variable)) +
+  geom_boxplot() +
+  facet_wrap(~ diff) +
+  scale_fill_manual(values = c("RA4h" = "red", "RA2d" = "blue", "RA4d" = "black")) +
+  stat_compare_means(
+    comparisons = list(c("RA4h", "RA2d"), c("RA2d", "RA4d"), c("RA4h", "RA4d")),
+    label = "p.format",
+    size = 5,  # Increase p-value text size
+    bracket.size = 0.8  # Thicker bracket lines
+  ) +
+  labs(x = "Variable", y = "Value", fill = "Condition") +
+  theme_minimal() +
+  theme(
+    # Axis titles
+    axis.title.x = element_text(size = 16, face = "bold", margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, face = "bold", margin = margin(r = 10)),
+    
+    # Axis texts
+    axis.text.x = element_text(size = 14, color = "black", angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 14, color = "black"),
+    
+    # Legend
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    
+    # Facet labels (strip text)
+    strip.text = element_text(size = 14, face = "bold"),
+    
+    # Overall text
+    text = element_text(size = 14)
+  )
+p
+
+dev.off()
+```
+
+
+#### wilcox test
+```{r}
+
+pdf("./TAD_N_all_boxplot_with_P_wilcox.pdf", width = 15,height = 15)
+# Define the comparisons you want
+
+my_comparisons <- list(c("RA4h", "RA2d"), c("RA2d", "RA4d"), c("RA4h", "RA4d"))
+
+ggplot(res_all_data, aes(x = diff, y = value, fill = variable)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("RA4h" = "red", "RA2d" = "blue", "RA4d" = "black")) +
+  stat_compare_means(
+    comparisons = my_comparisons,
+    method = "wilcox.test",# or "wilcox.test"
+    label = "p.format",
+    tip.length = 0.01
+  ) +
+  labs(x = "Diff", y = "Value", fill = "Condition") +
+  theme_minimal()
+
+# If 'diff' has multiple categories and you want separate plots
+p <- ggplot(res_all_data, aes(x = variable, y = value, fill = variable)) +
+  geom_boxplot() +
+  facet_wrap(~ diff) +
+  scale_fill_manual(values = c("RA4h" = "red", "RA2d" = "blue", "RA4d" = "black")) +
+  stat_compare_means(
+    comparisons = list(c("RA4h", "RA2d"), c("RA2d", "RA4d"), c("RA4h", "RA4d")), method = "wilcox.test",
+    label = "p.format"
+  ) +
+  theme_minimal()
+p
+
+## increase label size
+p <- ggplot(res_all_data, aes(x = variable, y = value, fill = variable)) +
+  geom_boxplot() +
+  facet_wrap(~ diff) +
+  scale_fill_manual(values = c("RA4h" = "red", "RA2d" = "blue", "RA4d" = "black")) +
+  stat_compare_means(
+    comparisons = list(c("RA4h", "RA2d"), c("RA2d", "RA4d"), c("RA4h", "RA4d")), method = "wilcox.test",
+    label = "p.format",
+    size = 5,  # Increase p-value text size
+    bracket.size = 0.8  # Thicker bracket lines
+  ) +
+  labs(x = "Variable", y = "Value", fill = "Condition") +
+  theme_minimal() +
+  theme(
+    # Axis titles
+    axis.title.x = element_text(size = 16, face = "bold", margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, face = "bold", margin = margin(r = 10)),
+    
+    # Axis texts
+    axis.text.x = element_text(size = 14, color = "black", angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 14, color = "black"),
+    
+    # Legend
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    
+    # Facet labels (strip text)
+    strip.text = element_text(size = 14, face = "bold"),
+    
+    # Overall text
+    text = element_text(size = 14)
+  )
+p
+
+dev.off()
+```
+
+
